@@ -337,7 +337,7 @@ def write_workbook(
     ws.add_table(table)
 
     header_fill = PatternFill("solid", fgColor="1F4E78")
-    header_font = Font(name="Segoe UI", color="FFFFFF", bold=True)
+    header_font = Font(name="Segoe UI", size=11, color="FFFFFF", bold=True)
     thin = Side(style="thin", color="808080")
     full_border = Border(left=thin, right=thin, top=thin, bottom=thin)
     for cell in ws[header_row]:
@@ -356,7 +356,7 @@ def write_workbook(
             elif cell.column == last_col:
                 horizontal = "center"
             cell.alignment = Alignment(horizontal=horizontal, vertical="center", wrap_text=cell.column == 4)
-            cell.font = Font(name="Segoe UI", size=10)
+            cell.font = Font(name="Segoe UI", size=11)
             if cell.value not in (None, ""):
                 cell.border = full_border
 
@@ -364,7 +364,7 @@ def write_workbook(
         "A": 24,
         "B": 12,
         "C": 9,
-        "D": 84,
+        "D": 76,
         "E": 16,
         "F": 16 if include_refunds else 18,
         "G": 18,
@@ -378,7 +378,7 @@ def write_workbook(
         for column_index in amount_columns:
             ws.cell(row_index, column_index).number_format = '#,##0.00 "€"'
         movement = str(ws.cell(row_index, 4).value or "")
-        ws.row_dimensions[row_index].height = 20 if len(movement) <= 95 else 36
+        ws.row_dimensions[row_index].height = 22 if len(movement) <= 95 else 40
 
     ws.freeze_panes = f"A{header_row + 1}"
     ws.sheet_view.showGridLines = False
