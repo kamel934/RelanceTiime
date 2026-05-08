@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import csv
 import gc
+import json
+import os
 import re
 import subprocess
 import sys
@@ -88,6 +90,34 @@ INVOICES_WITHOUT_PAYMENT = Treatment(
 ALL_TREATMENTS = (PAYMENTS_WITHOUT_INVOICE, INVOICES_WITHOUT_PAYMENT)
 EXCEL_ONLY = OutputFormats(excel=True, pdf=False)
 EXCEL_AND_PDF = OutputFormats(excel=True, pdf=True)
+
+
+def settings_path() -> Path:
+    base = Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming")
+    return base / "RelanceTiime" / "settings.json"
+
+
+def load_saved_formats(default_formats: OutputFormats, invalid_fallback: OutputFormats = EXCEL_ONLY) -> OutputFormats:
+    path = settings_path()
+    if not path.exists():
+        return default_formats
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+        formats = OutputFormats(excel=bool(data.get("excel")), pdf=bool(data.get("pdf")))
+    except Exception:
+        return default_formats
+    if not formats.has_any:
+        return invalid_fallback
+    return formats
+
+
+def save_formats(formats: OutputFormats) -> None:
+    path = settings_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"excel": formats.excel, "pdf": formats.pdf}, indent=2),
+        encoding="utf-8",
+    )
 
 
 def resource_path(name: str) -> Path:
@@ -546,8 +576,9 @@ class App:
         self.root.geometry("920x700")
         self.root.minsize(820, 660)
         self.root.configure(bg="#F5F7FA")
-        self.excel_format_var = tk.BooleanVar(value=True)
-        self.pdf_format_var = tk.BooleanVar(value=False)
+        saved_formats = load_saved_formats(EXCEL_ONLY, EXCEL_ONLY)
+        self.excel_format_var = tk.BooleanVar(value=saved_formats.excel)
+        self.pdf_format_var = tk.BooleanVar(value=saved_formats.pdf)
         self.status_var = tk.StringVar(value="Déposez un CSV pour lancer un traitement.")
         self.build_ui()
 
@@ -584,6 +615,7 @@ class App:
                 format_frame,
                 text=text,
                 variable=variable,
+                command=self.save_selected_formats,
                 font=("Segoe UI", 10),
                 bg="#F5F7FA",
                 fg="#1F2937",
@@ -601,7 +633,6 @@ class App:
         self.create_drop_box(
             row_frame,
             title="Lister les paiements\nsans facture",
-            detail="N° de pièce vide\nhors journaux AC, AT, OD, CA, AN, RV",
             treatments=(PAYMENTS_WITHOUT_INVOICE,),
             column=0,
             accent="#1F4E78",
@@ -609,7 +640,6 @@ class App:
         self.create_drop_box(
             row_frame,
             title="Lister les factures\nsans paiements",
-            detail="journaux AC et AT uniquement\ncolonnes Factures et Avoirs",
             treatments=(INVOICES_WITHOUT_PAYMENT,),
             column=1,
             accent="#8A6A13",
@@ -621,7 +651,6 @@ class App:
         self.create_drop_box(
             bottom_frame,
             title="Générer les 2 fichiers",
-            detail="paiements sans facture + factures sans paiements",
             treatments=ALL_TREATMENTS,
             column=0,
             accent="#334155",
@@ -670,7 +699,6 @@ class App:
         self,
         parent: tk.Frame,
         title: str,
-        detail: str,
         treatments: tuple[Treatment, ...],
         column: int,
         accent: str,
@@ -682,7 +710,7 @@ class App:
             highlightbackground=accent,
             highlightthickness=2,
             bd=0,
-            height=145 if compact else 210,
+            height=125 if compact else 180,
             cursor="hand2",
         )
         frame.grid(row=0, column=column, padx=12, sticky="nsew")
@@ -697,18 +725,7 @@ class App:
             justify="center",
             cursor="hand2",
         )
-        label.pack(pady=(22 if compact else 28, 7))
-
-        detail_label = tk.Label(
-            frame,
-            text=detail,
-            font=("Segoe UI", 9),
-            bg="#FFFFFF",
-            fg="#4B5563",
-            justify="center",
-            cursor="hand2",
-        )
-        detail_label.pack(pady=(0, 12))
+        label.pack(pady=(26 if compact else 42, 16))
 
         button = tk.Button(
             frame,
@@ -726,11 +743,11 @@ class App:
         )
         button.pack()
 
-        for widget in (frame, label, detail_label):
+        for widget in (frame, label):
             widget.bind("<Button-1>", lambda _event, selected=treatments: self.choose_file(selected))
 
         if DND_FILES:
-            for widget in (frame, label, detail_label):
+            for widget in (frame, label):
                 widget.drop_target_register(DND_FILES)
                 widget.dnd_bind("<<Drop>>", lambda event, selected=treatments: self.on_drop(event, selected))
 
@@ -763,6 +780,12 @@ class App:
             pdf=bool(self.pdf_format_var.get()),
         )
 
+    def save_selected_formats(self) -> None:
+        try:
+            save_formats(self.selected_formats())
+        except Exception as exc:
+            self.set_status(f"Erreur lors de la sauvegarde du format :\n{exc}", "error")
+
     def handle_paths(self, paths: list[Path], treatments: tuple[Treatment, ...]) -> None:
         if not paths:
             return
@@ -790,7 +813,8 @@ def main() -> int:
         if root is not None:
             root.withdraw()
         try:
-            outputs = process_many(args, (PAYMENTS_WITHOUT_INVOICE,), EXCEL_AND_PDF, root)
+            formats = load_saved_formats(EXCEL_AND_PDF, EXCEL_ONLY)
+            outputs = process_many(args, (PAYMENTS_WITHOUT_INVOICE,), formats, root)
             if no_dialog:
                 if sys.stdout is not None:
                     print(success_text(outputs))
