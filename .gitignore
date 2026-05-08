@@ -1,0 +1,11 @@
+.venv_build/
+build/
+dist/
+__pycache__/
+
+Factures manquantes/
+
+*.csv
+*.xlsx
+*.pdf
+*.pyc
