@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import csv
+import gc
 import re
+import subprocess
 import sys
+import tempfile
+import time
 import unicodedata
 from dataclasses import dataclass
 from datetime import datetime
@@ -37,11 +41,22 @@ REQUIRED_COLUMNS = {
 @dataclass
 class OutputInfo:
     source: Path
-    output: Path | None
+    excel_output: Path | None
+    pdf_output: Path | None
     row_count: int
     amount_label: str
     total_amount: float
     treatment_label: str
+
+
+@dataclass(frozen=True)
+class OutputFormats:
+    excel: bool
+    pdf: bool
+
+    @property
+    def has_any(self) -> bool:
+        return self.excel or self.pdf
 
 
 @dataclass(frozen=True)
@@ -71,6 +86,8 @@ INVOICES_WITHOUT_PAYMENT = Treatment(
     amount_label="total factures",
 )
 ALL_TREATMENTS = (PAYMENTS_WITHOUT_INVOICE, INVOICES_WITHOUT_PAYMENT)
+EXCEL_ONLY = OutputFormats(excel=True, pdf=False)
+EXCEL_AND_PDF = OutputFormats(excel=True, pdf=True)
 
 
 def resource_path(name: str) -> Path:
@@ -96,6 +113,14 @@ def parse_money(value: str | None) -> float:
 
 def format_amount(value: float) -> str:
     return f"{value:,.2f}".replace(",", " ").replace(".", ",")
+
+
+def write_error_log(message: str) -> None:
+    try:
+        log_path = Path(tempfile.gettempdir()) / "relance_tiime_error.log"
+        log_path.write_text(message, encoding="utf-8")
+    except Exception:
+        pass
 
 
 def parse_date(value: str | None) -> datetime | None:
@@ -144,6 +169,18 @@ def unique_path(path: Path) -> Path:
         candidate = path.with_name(f"{stem} - {index}{suffix}")
         if not candidate.exists():
             return candidate
+        index += 1
+
+
+def unique_output_paths(directory: Path, stem: str, formats: OutputFormats) -> tuple[Path | None, Path | None]:
+    index = 1
+    while True:
+        suffix = "" if index == 1 else f" - {index}"
+        excel_path = directory / f"{stem}{suffix}.xlsx" if formats.excel else None
+        pdf_path = directory / f"{stem}{suffix}.pdf" if formats.pdf else None
+        candidates = [path for path in (excel_path, pdf_path) if path is not None]
+        if all(not path.exists() for path in candidates):
+            return excel_path, pdf_path
         index += 1
 
 
@@ -315,7 +352,8 @@ def write_workbook(
 
     ws.freeze_panes = f"A{header_row + 1}"
     ws.sheet_view.showGridLines = False
-    ws.page_setup.orientation = "landscape"
+    ws.page_setup.orientation = "portrait"
+    ws.page_setup.paperSize = ws.PAPERSIZE_A4
     ws.page_setup.fitToWidth = 1
     ws.page_setup.fitToHeight = 0
     ws.sheet_properties.pageSetUpPr.fitToPage = True
@@ -324,12 +362,100 @@ def write_workbook(
     ws.page_margins.right = 0.3
     ws.page_margins.top = 0.5
     ws.page_margins.bottom = 0.5
+    ws.page_margins.footer = 0.2
+    ws.oddFooter.center.text = "&P/&N"
+    ws.evenFooter.center.text = "&P/&N"
+    ws.firstFooter.center.text = "&P/&N"
     ws.sheet_view.zoomScale = 90
 
     wb.save(output_path)
 
 
-def process_file(csv_path: Path, treatment: Treatment, root: Tk | None = None) -> OutputInfo:
+def export_workbook_to_pdf(excel_path: Path, pdf_path: Path) -> None:
+    try:
+        import pythoncom
+        import win32com.client
+        import win32process
+    except ImportError as exc:
+        raise RuntimeError("La génération PDF nécessite pywin32 et Microsoft Excel.") from exc
+
+    excel_path = excel_path.resolve()
+    pdf_path = pdf_path.resolve()
+    pdf_path.parent.mkdir(parents=True, exist_ok=True)
+
+    excel = None
+    workbook = None
+    worksheets = None
+    worksheet = None
+    page_setup = None
+    excel_pid = None
+    pythoncom.CoInitialize()
+    try:
+        excel = win32com.client.DispatchEx("Excel.Application")
+        try:
+            _, excel_pid = win32process.GetWindowThreadProcessId(excel.Hwnd)
+        except Exception:
+            excel_pid = None
+        excel.Visible = False
+        excel.DisplayAlerts = False
+        workbook = excel.Workbooks.Open(str(excel_path))
+
+        worksheets = workbook.Worksheets
+        for worksheet_index in range(1, worksheets.Count + 1):
+            worksheet = worksheets.Item(worksheet_index)
+            page_setup = worksheet.PageSetup
+            page_setup.Orientation = 1
+            page_setup.Zoom = False
+            page_setup.FitToPagesWide = 1
+            page_setup.FitToPagesTall = False
+            page_setup.CenterFooter = "&P/&N"
+            page_setup = None
+            worksheet = None
+
+        workbook.ExportAsFixedFormat(0, str(pdf_path))
+    except Exception as exc:
+        raise RuntimeError(f"Impossible de générer le PDF avec Excel : {exc}") from exc
+    finally:
+        if workbook is not None:
+            try:
+                workbook.Close(False)
+            except Exception:
+                pass
+        if excel is not None:
+            try:
+                excel.Quit()
+            except Exception:
+                pass
+        page_setup = None
+        worksheet = None
+        worksheets = None
+        workbook = None
+        excel = None
+        gc.collect()
+        pythoncom.CoFreeUnusedLibraries()
+        pythoncom.CoUninitialize()
+        if excel_pid is not None:
+            time.sleep(0.5)
+            subprocess.run(
+                ["taskkill", "/PID", str(excel_pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+
+    if not pdf_path.exists() or pdf_path.stat().st_size == 0:
+        raise RuntimeError(f"Le PDF n'a pas été créé : {pdf_path}")
+
+
+def process_file(
+    csv_path: Path,
+    treatment: Treatment,
+    formats: OutputFormats = EXCEL_ONLY,
+    root: Tk | None = None,
+) -> OutputInfo:
+    if not formats.has_any:
+        raise ValueError("Sélectionnez au moins un format.")
     if csv_path.suffix.lower() != ".csv":
         raise ValueError(f"Le fichier n'est pas un CSV : {csv_path.name}")
     if not csv_path.exists():
@@ -340,15 +466,30 @@ def process_file(csv_path: Path, treatment: Treatment, root: Tk | None = None) -
     total_key = "Paiements" if treatment.key == "payments" else "Factures"
     total = sum(float(row.get(total_key) or 0) for row in rows)
     if not rows:
-        return OutputInfo(csv_path, None, 0, treatment.amount_label, total, treatment.label)
+        return OutputInfo(csv_path, None, None, 0, treatment.amount_label, total, treatment.label)
 
-    output_name = f"{client} - {treatment.output_label} {year}.xlsx"
-    output_path = unique_path(csv_path.with_name(output_name))
-    write_workbook(rows, output_path, treatment)
-    return OutputInfo(csv_path, output_path, len(rows), treatment.amount_label, total, treatment.label)
+    output_stem = f"{client} - {treatment.output_label} {year}"
+    excel_path, pdf_path = unique_output_paths(csv_path.parent, output_stem, formats)
+
+    if formats.excel:
+        write_workbook(rows, excel_path, treatment)
+        if formats.pdf:
+            export_workbook_to_pdf(excel_path, pdf_path)
+    elif formats.pdf:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_excel_path = Path(temp_dir) / f"{output_stem}.xlsx"
+            write_workbook(rows, temp_excel_path, treatment)
+            export_workbook_to_pdf(temp_excel_path, pdf_path)
+
+    return OutputInfo(csv_path, excel_path, pdf_path, len(rows), treatment.amount_label, total, treatment.label)
 
 
-def process_many(paths: list[Path], treatments: tuple[Treatment, ...], root: Tk | None = None) -> list[OutputInfo]:
+def process_many(
+    paths: list[Path],
+    treatments: tuple[Treatment, ...],
+    formats: OutputFormats = EXCEL_ONLY,
+    root: Tk | None = None,
+) -> list[OutputInfo]:
     if not paths:
         return []
     outputs = []
@@ -356,7 +497,7 @@ def process_many(paths: list[Path], treatments: tuple[Treatment, ...], root: Tk 
     for path in paths:
         for treatment in treatments:
             try:
-                outputs.append(process_file(path, treatment, root))
+                outputs.append(process_file(path, treatment, formats, root))
             except Exception as exc:
                 errors.append(f"{path.name} ({treatment.label}) : {exc}")
     if errors:
@@ -365,14 +506,21 @@ def process_many(paths: list[Path], treatments: tuple[Treatment, ...], root: Tk 
 
 
 def success_text(outputs: list[OutputInfo]) -> str:
-    created = [info for info in outputs if info.output is not None]
-    skipped = [info for info in outputs if info.output is None]
+    created = [info for info in outputs if info.excel_output is not None or info.pdf_output is not None]
+    skipped = [info for info in outputs if info.excel_output is None and info.pdf_output is None]
+    created_file_count = sum(
+        int(info.excel_output is not None) + int(info.pdf_output is not None)
+        for info in created
+    )
     lines = []
     if created:
-        lines.append("Fichier généré :" if len(created) == 1 else "Fichiers générés :")
+        lines.append("Fichier généré :" if created_file_count == 1 else "Fichiers générés :")
         for info in created:
-            lines.append(f"- {info.output}")
-            lines.append(f"  {info.row_count} lignes, {info.amount_label} : {format_amount(info.total_amount)} €")
+            lines.append(f"- {info.treatment_label} : {info.row_count} lignes, {info.amount_label} : {format_amount(info.total_amount)} €")
+            if info.excel_output is not None:
+                lines.append(f"  Excel : {info.excel_output}")
+            if info.pdf_output is not None:
+                lines.append(f"  PDF : {info.pdf_output}")
     if skipped:
         if lines:
             lines.append("")
@@ -395,9 +543,11 @@ class App:
                 self.root.iconbitmap(str(icon_path))
             except Exception:
                 pass
-        self.root.geometry("920x650")
-        self.root.minsize(820, 620)
+        self.root.geometry("920x700")
+        self.root.minsize(820, 660)
         self.root.configure(bg="#F5F7FA")
+        self.excel_format_var = tk.BooleanVar(value=True)
+        self.pdf_format_var = tk.BooleanVar(value=False)
         self.status_var = tk.StringVar(value="Déposez un CSV pour lancer un traitement.")
         self.build_ui()
 
@@ -419,6 +569,29 @@ class App:
             fg="#4B5563",
         )
         subtitle.pack(pady=(0, 18))
+
+        format_frame = tk.Frame(self.root, bg="#F5F7FA")
+        format_frame.pack(pady=(0, 16))
+        tk.Label(
+            format_frame,
+            text="Format de sortie",
+            font=("Segoe UI", 10, "bold"),
+            bg="#F5F7FA",
+            fg="#334155",
+        ).pack(side="left", padx=(0, 14))
+        for text, variable in (("Excel", self.excel_format_var), ("PDF", self.pdf_format_var)):
+            tk.Checkbutton(
+                format_frame,
+                text=text,
+                variable=variable,
+                font=("Segoe UI", 10),
+                bg="#F5F7FA",
+                fg="#1F2937",
+                activebackground="#F5F7FA",
+                activeforeground="#1F2937",
+                selectcolor="#FFFFFF",
+                cursor="hand2",
+            ).pack(side="left", padx=8)
 
         row_frame = tk.Frame(self.root, bg="#F5F7FA")
         row_frame.pack(fill="x", padx=34)
@@ -455,7 +628,7 @@ class App:
             compact=True,
         )
 
-        note = "Le dépôt direct d'un CSV sur l'icône du .exe génère seulement les paiements sans facture."
+        note = "Le dépôt direct d'un CSV sur l'icône du .exe génère les paiements sans facture en Excel + PDF."
         if not DND_FILES:
             note = "Le glisser-déposer dans la fenêtre est indisponible ; utilisez les boutons ou glissez sur le .exe."
         tk.Label(self.root, text=note, font=("Segoe UI", 9), bg="#F5F7FA", fg="#4B5563").pack(pady=(18, 0))
@@ -584,14 +757,25 @@ class App:
         self.status_label.configure(bg=bg, fg=text_fg)
         self.status_var.set(text)
 
+    def selected_formats(self) -> OutputFormats:
+        return OutputFormats(
+            excel=bool(self.excel_format_var.get()),
+            pdf=bool(self.pdf_format_var.get()),
+        )
+
     def handle_paths(self, paths: list[Path], treatments: tuple[Treatment, ...]) -> None:
         if not paths:
             return
+        formats = self.selected_formats()
+        if not formats.has_any:
+            self.set_status("Sélectionnez au moins un format.", "error")
+            return
         try:
-            outputs = process_many(paths, treatments, self.root)
-            created = any(info.output is not None for info in outputs)
+            outputs = process_many(paths, treatments, formats, self.root)
+            created = any(info.excel_output is not None or info.pdf_output is not None for info in outputs)
             self.set_status(success_text(outputs), "success" if created else "info")
         except Exception as exc:
+            write_error_log(str(exc))
             self.set_status(f"Erreur :\n{exc}", "error")
 
     def run(self) -> None:
@@ -606,15 +790,18 @@ def main() -> int:
         if root is not None:
             root.withdraw()
         try:
-            outputs = process_many(args, (PAYMENTS_WITHOUT_INVOICE,), root)
+            outputs = process_many(args, (PAYMENTS_WITHOUT_INVOICE,), EXCEL_AND_PDF, root)
             if no_dialog:
-                print(success_text(outputs))
+                if sys.stdout is not None:
+                    print(success_text(outputs))
             else:
                 messagebox.showinfo("Terminé", success_text(outputs), parent=root)
             return 0
         except Exception as exc:
+            write_error_log(str(exc))
             if no_dialog:
-                print(str(exc), file=sys.stderr)
+                if sys.stderr is not None:
+                    print(str(exc), file=sys.stderr)
             else:
                 messagebox.showerror("Erreur", str(exc), parent=root)
             return 1

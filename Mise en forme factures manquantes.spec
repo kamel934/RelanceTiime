@@ -3,7 +3,7 @@ from PyInstaller.utils.hooks import collect_all
 
 datas = [('logo_compta_premium.ico', '.')]
 binaries = []
-hiddenimports = []
+hiddenimports = ['win32com.client', 'pythoncom', 'pywintypes', 'win32timezone', 'win32process']
 tmp_ret = collect_all('tkinterdnd2')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
