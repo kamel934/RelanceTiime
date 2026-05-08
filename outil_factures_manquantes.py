@@ -31,7 +31,9 @@ except Exception:
 EXCLUDED_JOURNALS = {"AT", "AC", "OD", "CA", "AN", "RV"}
 MOVEMENT_CHARS_PER_LINE = 64
 BASE_ROW_HEIGHT = 22
-MAX_ROW_HEIGHT = 90
+WRAPPED_LINE_HEIGHT = 18
+ROW_HEIGHT_PADDING = 4
+MAX_ROW_HEIGHT = 84
 REQUIRED_COLUMNS = {
     "libelle_du_compte": "Libellé du compte",
     "date": "Date",
@@ -263,7 +265,9 @@ def estimate_wrapped_lines(value: object, chars_per_line: int = MOVEMENT_CHARS_P
 
 def row_height_for_movement(value: object) -> int:
     line_count = estimate_wrapped_lines(value)
-    return min(MAX_ROW_HEIGHT, max(BASE_ROW_HEIGHT, BASE_ROW_HEIGHT * line_count))
+    if line_count <= 1:
+        return BASE_ROW_HEIGHT
+    return min(MAX_ROW_HEIGHT, ROW_HEIGHT_PADDING + WRAPPED_LINE_HEIGHT * line_count)
 
 
 def read_rows(csv_path: Path, treatment: Treatment) -> list[dict[str, object]]:
@@ -857,11 +861,10 @@ def main() -> int:
         try:
             formats = load_saved_formats(EXCEL_AND_PDF, EXCEL_ONLY)
             outputs = process_many(args, (PAYMENTS_WITHOUT_INVOICE,), formats, root)
-            if no_dialog:
-                if sys.stdout is not None:
-                    print(success_text(outputs))
-            else:
-                messagebox.showinfo("Terminé", success_text(outputs), parent=root)
+            if not no_dialog:
+                return 0
+            if sys.stdout is not None:
+                print(success_text(outputs))
             return 0
         except Exception as exc:
             write_error_log(str(exc))
