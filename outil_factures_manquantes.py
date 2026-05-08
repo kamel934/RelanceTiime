@@ -29,6 +29,9 @@ except Exception:
 
 
 EXCLUDED_JOURNALS = {"AT", "AC", "OD", "CA", "AN", "RV"}
+MOVEMENT_CHARS_PER_LINE = 64
+BASE_ROW_HEIGHT = 22
+MAX_ROW_HEIGHT = 90
 REQUIRED_COLUMNS = {
     "libelle_du_compte": "Libellé du compte",
     "date": "Date",
@@ -224,6 +227,45 @@ def get_header_map(reader: csv.DictReader) -> dict[str, str]:
     return header_map
 
 
+def estimate_wrapped_lines(value: object, chars_per_line: int = MOVEMENT_CHARS_PER_LINE) -> int:
+    text = str(value or "").strip()
+    if not text:
+        return 1
+
+    total_lines = 0
+    for raw_segment in text.splitlines() or [""]:
+        words = raw_segment.split()
+        if not words:
+            total_lines += 1
+            continue
+
+        line_length = 0
+        segment_lines = 1
+        for word in words:
+            word_length = len(word)
+            if line_length == 0:
+                line_length = word_length
+            elif line_length + 1 + word_length <= chars_per_line:
+                line_length += 1 + word_length
+            else:
+                segment_lines += 1
+                line_length = word_length
+
+            if line_length > chars_per_line:
+                extra_lines = (line_length - 1) // chars_per_line
+                segment_lines += extra_lines
+                line_length = line_length % chars_per_line or chars_per_line
+
+        total_lines += segment_lines
+
+    return max(1, total_lines)
+
+
+def row_height_for_movement(value: object) -> int:
+    line_count = estimate_wrapped_lines(value)
+    return min(MAX_ROW_HEIGHT, max(BASE_ROW_HEIGHT, BASE_ROW_HEIGHT * line_count))
+
+
 def read_rows(csv_path: Path, treatment: Treatment) -> list[dict[str, object]]:
     with csv_path.open("r", encoding="cp1252", newline="") as handle:
         reader = csv.DictReader(handle, delimiter=";")
@@ -262,7 +304,7 @@ def read_rows(csv_path: Path, treatment: Treatment) -> list[dict[str, object]]:
                         **base,
                         "Factures": credit if credit != 0 else None,
                         "Avoirs": debit if debit != 0 else None,
-                        "Remarque": "Facture sans paiement" if credit > 0 else "Avoir sans paiement",
+                        "Remarque": "Facture sans paiement" if credit > 0 else "Avoir sans rmbrsmt",
                     }
                 )
 
@@ -378,7 +420,7 @@ def write_workbook(
         for column_index in amount_columns:
             ws.cell(row_index, column_index).number_format = '#,##0.00 "€"'
         movement = str(ws.cell(row_index, 4).value or "")
-        ws.row_dimensions[row_index].height = 22 if len(movement) <= 95 else 40
+        ws.row_dimensions[row_index].height = row_height_for_movement(movement)
 
     ws.freeze_panes = f"A{header_row + 1}"
     ws.sheet_view.showGridLines = False
