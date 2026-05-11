@@ -29,7 +29,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='Mise en forme factures manquantes',
+    name='Liste Tiime',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

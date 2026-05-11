@@ -28,7 +28,7 @@ except Exception:
     TkinterDnD = None
 
 
-EXCLUDED_JOURNALS = {"AT", "AC", "OD", "CA", "AN", "RV"}
+EXCLUDED_JOURNALS = {"AT", "AC", "AO", "OD", "CA", "AN", "RV"}
 MOVEMENT_CHARS_PER_LINE = 64
 BASE_ROW_HEIGHT = 22
 WRAPPED_LINE_HEIGHT = 18
@@ -337,9 +337,12 @@ def write_workbook(
         headers.append("Remarque")
         amount_columns = [5] + ([6] if include_refunds else [])
     else:
-        include_refunds = True
-        headers = ["Libellé du compte", "Date", "Journal", "Libellé mouvement", "Factures", "Avoirs", "Remarque"]
-        amount_columns = [5, 6]
+        include_refunds = any(row["Avoirs"] not in (None, 0) for row in rows)
+        headers = ["Libellé du compte", "Date", "Journal", "Libellé mouvement", "Factures"]
+        if include_refunds:
+            headers.append("Avoirs")
+        headers.append("Remarque")
+        amount_columns = [5] + ([6] if include_refunds else [])
 
     wb = Workbook()
     ws = wb.active
@@ -370,9 +373,10 @@ def write_workbook(
                 row["Journal"],
                 row["Libellé mouvement"],
                 row["Factures"],
-                row["Avoirs"],
-                row["Remarque"],
             ]
+            if include_refunds:
+                values.append(row["Avoirs"])
+            values.append(row["Remarque"])
         for column_index, value in enumerate(values, start=1):
             ws.cell(row_index, column_index, value)
 

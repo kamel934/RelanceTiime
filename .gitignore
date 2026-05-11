@@ -8,4 +8,5 @@ Factures manquantes/
 *.csv
 *.xlsx
 *.pdf
+*.zip
 *.pyc
