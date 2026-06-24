@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 import csv
-import gc
 import json
 import os
 import re
-import subprocess
 import sys
 import tempfile
-import time
 import unicodedata
 from dataclasses import dataclass
 from datetime import datetime
@@ -29,6 +26,7 @@ except Exception:
 
 
 EXCLUDED_JOURNALS = {"AT", "AC", "AO", "OD", "CA", "AN", "RV"}
+APP_VERSION = "1.0.0"
 SALE_JOURNALS = {"VI", "VE", "VT"}
 CUSTOMER_RECEIPT_EXCLUDED_JOURNALS = EXCLUDED_JOURNALS | SALE_JOURNALS
 SUPPLIER_DETECTION_JOURNALS = {"AC", "AT", "AO"}
@@ -708,107 +706,6 @@ def write_pdf(rows: list[dict[str, object]], output_path: Path, treatment: Treat
         bottomMargin=14 * mm,
     )
     doc.build([table], canvasmaker=NumberedCanvas)
-
-
-def export_workbook_to_pdf(excel_path: Path, pdf_path: Path) -> None:
-    try:
-        import pythoncom
-        import win32com.client
-        import win32process
-        import win32print
-    except ImportError as exc:
-        raise RuntimeError("La génération PDF nécessite pywin32 et Microsoft Excel.") from exc
-
-    excel_path = excel_path.resolve()
-    pdf_path = pdf_path.resolve()
-    pdf_path.parent.mkdir(parents=True, exist_ok=True)
-
-    excel = None
-    workbook = None
-    worksheets = None
-    worksheet = None
-    page_setup = None
-    excel_pid = None
-    default_printer = None
-    pythoncom.CoInitialize()
-    try:
-        try:
-            default_printer = win32print.GetDefaultPrinter()
-            for printer_name in ("Microsoft Print to PDF", "Adobe PDF"):
-                try:
-                    win32print.SetDefaultPrinter(printer_name)
-                    break
-                except Exception:
-                    pass
-        except Exception:
-            default_printer = None
-
-        excel = win32com.client.DispatchEx("Excel.Application")
-        try:
-            _, excel_pid = win32process.GetWindowThreadProcessId(excel.Hwnd)
-        except Exception:
-            excel_pid = None
-        excel.Visible = False
-        excel.DisplayAlerts = False
-        workbook = excel.Workbooks.Open(str(excel_path))
-
-        worksheets = workbook.Worksheets
-        for worksheet_index in range(1, worksheets.Count + 1):
-            worksheet = worksheets.Item(worksheet_index)
-            page_setup = worksheet.PageSetup
-            for property_name, property_value in (
-                ("Orientation", 1),
-                ("Zoom", False),
-                ("FitToPagesWide", 1),
-                ("FitToPagesTall", False),
-                ("CenterFooter", "&P/&N"),
-            ):
-                try:
-                    setattr(page_setup, property_name, property_value)
-                except Exception:
-                    pass
-            page_setup = None
-            worksheet = None
-
-        workbook.ExportAsFixedFormat(0, str(pdf_path))
-    except Exception as exc:
-        raise RuntimeError(f"Impossible de générer le PDF avec Excel : {exc}") from exc
-    finally:
-        if workbook is not None:
-            try:
-                workbook.Close(False)
-            except Exception:
-                pass
-        if excel is not None:
-            try:
-                excel.Quit()
-            except Exception:
-                pass
-        page_setup = None
-        worksheet = None
-        worksheets = None
-        workbook = None
-        excel = None
-        if default_printer:
-            try:
-                win32print.SetDefaultPrinter(default_printer)
-            except Exception:
-                pass
-        gc.collect()
-        pythoncom.CoFreeUnusedLibraries()
-        pythoncom.CoUninitialize()
-        if excel_pid is not None:
-            time.sleep(0.5)
-            subprocess.run(
-                ["taskkill", "/PID", str(excel_pid), "/T", "/F"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
-
-    if not pdf_path.exists() or pdf_path.stat().st_size == 0:
-        raise RuntimeError(f"Le PDF n'a pas été créé : {pdf_path}")
 
 
 def process_file(
