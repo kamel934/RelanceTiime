@@ -141,6 +141,7 @@ public sealed class MainForm : Form
         };
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
         grid.Controls.Add(CreateDropPanel(TreatmentRole.First, Color.FromArgb(31, 78, 120)), 0, 0);
         grid.Controls.Add(CreateDropPanel(TreatmentRole.Second, Color.FromArgb(138, 106, 19)), 1, 0);
@@ -160,6 +161,7 @@ public sealed class MainForm : Form
         outer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20));
         outer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 60));
         outer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20));
+        outer.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         outer.Controls.Add(CreateDropPanel(TreatmentRole.Both, Color.FromArgb(51, 65, 85)), 1, 0);
         return outer;
     }
@@ -189,23 +191,27 @@ public sealed class MainForm : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 3,
-            Padding = new Padding(20),
+            RowCount = 5,
+            Padding = new Padding(16, 12, 16, 12),
             BackColor = Color.White,
             Cursor = Cursors.Hand
         };
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 62));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 38));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 60));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 10));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
         layout.Click += (_, _) => SelectCsv(role);
 
         var title = new Label
         {
             Dock = DockStyle.Fill,
             TextAlign = ContentAlignment.MiddleCenter,
-            Font = new Font("Segoe UI", 15f, FontStyle.Bold),
+            Font = new Font("Segoe UI", 14f, FontStyle.Bold),
             ForeColor = accent,
-            Cursor = Cursors.Hand
+            Cursor = Cursors.Hand,
+            AutoEllipsis = false,
+            UseCompatibleTextRendering = true
         };
         title.Click += (_, _) => SelectCsv(role);
         _titles[role] = title;
@@ -224,8 +230,8 @@ public sealed class MainForm : Form
         button.FlatAppearance.BorderSize = 0;
         button.Click += (_, _) => SelectCsv(role);
 
-        layout.Controls.Add(title, 0, 0);
-        layout.Controls.Add(button, 0, 1);
+        layout.Controls.Add(title, 0, 1);
+        layout.Controls.Add(button, 0, 3);
         panel.Controls.Add(layout);
         _dropPanels.Add(panel);
         return panel;

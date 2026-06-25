@@ -11,4 +11,7 @@
     <NeutralLanguage>fr-FR</NeutralLanguage>
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <DebugType>embedded</DebugType>
+  </PropertyGroup>
 </Project>
