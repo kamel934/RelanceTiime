@@ -1,0 +1,95 @@
+name: Go preview
+
+on:
+  push:
+    branches:
+      - codex/go-prototype
+  pull_request:
+    paths:
+      - "go-prototype/**"
+      - ".github/workflows/go-preview.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        working-directory: go-prototype
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.4"
+          cache-dependency-path: go-prototype/go.sum
+
+      - name: Set up MSYS2 UCRT64
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: mingw-w64-ucrt-x86_64-gcc
+
+      - name: Add GCC to PATH
+        shell: pwsh
+        run: '"C:\msys64\ucrt64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append'
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Run tests
+        env:
+          CGO_ENABLED: "1"
+        run: go test ./...
+
+      - name: Install Windows resource tool
+        run: go install github.com/tc-hib/go-winres@v0.3.3
+
+      - name: Generate Windows resources
+        shell: pwsh
+        run: >
+          & "$env:USERPROFILE\go\bin\go-winres.exe" make
+          --in "winres\winres.json"
+          --arch "amd64"
+          --out "cmd\listetiime\rsrc"
+
+      - name: Build preview executable
+        shell: pwsh
+        env:
+          CGO_ENABLED: "1"
+        run: |
+          New-Item -ItemType Directory -Path "publish" -Force | Out-Null
+          go build `
+            -trimpath `
+            -ldflags "-s -w -H=windowsgui" `
+            -o "publish\Liste Tiime Go.exe" `
+            ".\cmd\listetiime"
+
+      - name: Verify executable
+        shell: pwsh
+        run: |
+          $file = Get-Item -LiteralPath "publish\Liste Tiime Go.exe"
+          if ($file.Length -ge 45MB) {
+            throw "Exécutable trop volumineux : $($file.Length) octets"
+          }
+          $info = $file.VersionInfo
+          if ($info.ProductName -ne "Liste Tiime Go") {
+            throw "ProductName inattendu : $($info.ProductName)"
+          }
+          if ($info.ProductVersion -ne "3.0.0-preview.1") {
+            throw "ProductVersion inattendue : $($info.ProductVersion)"
+          }
+
+      - name: Upload preview artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Liste Tiime Go preview win-x64
+          path: go-prototype/publish/Liste Tiime Go.exe
