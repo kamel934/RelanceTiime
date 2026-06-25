@@ -19,3 +19,8 @@ Indiquez :
 
 Les rapports seront accusés réception dès que possible. Aucun fichier de grand
 livre réel ne doit être joint au rapport.
+
+## Signature
+
+Le binaire distribué dans les releases est actuellement non signé. Vérifiez le
+SHA-256 publié dans `SHA256SUMS.txt` avant utilisation sur un nouveau poste.

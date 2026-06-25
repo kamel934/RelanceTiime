@@ -6,7 +6,7 @@ Merci de contribuer à Liste Tiime.
 
 - Ne jamais committer de CSV, Excel, PDF ou données client réelles.
 - Utiliser uniquement des données synthétiques dans les tests.
-- Conserver la compatibilité Windows et Python 3.12.
+- Conserver la compatibilité Windows 10/11 64 bits et .NET 10.
 - Ajouter ou adapter les tests pour chaque changement métier.
 - Vérifier que les fichiers Excel s'ouvrent sans réparation et que les PDF
   commencent par `%PDF-`.
@@ -14,10 +14,9 @@ Merci de contribuer à Liste Tiime.
 ## Vérifications locales
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
-.\.venv\Scripts\python.exe -m pytest -q
-.\.venv\Scripts\pyinstaller.exe --clean --noconfirm "Liste Tiime.spec"
+dotnet restore ListeTiime.slnx
+dotnet test ListeTiime.slnx -c Release
+dotnet publish src\ListeTiime.App\ListeTiime.App.csproj -c Release -r win-x64 -o publish
 ```
 
 Les pull requests doivent expliquer le comportement modifié et les tests

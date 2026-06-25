@@ -10,48 +10,49 @@ on:
   workflow_dispatch:
 
 permissions:
-  actions: read
   contents: write
 
 jobs:
   build:
     runs-on: windows-latest
-    env:
-      SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
         with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: |
-            requirements.txt
-            requirements-dev.txt
+          dotnet-version: "10.0.x"
 
-      - name: Install dependencies
-        run: python -m pip install --disable-pip-version-check -r requirements-dev.txt
+      - name: Restore
+        run: dotnet restore ListeTiime.slnx
 
       - name: Run tests
-        run: python -m pytest -q
+        run: dotnet test ListeTiime.slnx -c Release --no-restore
 
       - name: Build executable
-        run: pyinstaller --clean --noconfirm "Liste Tiime.spec"
+        run: >
+          dotnet publish src\ListeTiime.App\ListeTiime.App.csproj
+          -c Release
+          -r win-x64
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:PublishReadyToRun=true
+          -p:PublishTrimmed=false
+          -p:EnableCompressionInSingleFile=false
+          -o publish
 
       - name: Verify Windows metadata
         shell: pwsh
         run: |
-          $file = Get-Item -LiteralPath "dist\Liste Tiime.exe"
+          $file = Get-Item -LiteralPath "publish\Liste Tiime.exe"
           $info = $file.VersionInfo
           $expected = @{
             ProductName = "Liste Tiime"
             CompanyName = "Kamel"
-            FileVersion = "1.0.0.0"
-            ProductVersion = "1.0.0"
-            OriginalFilename = "Liste Tiime.exe"
+            FileVersion = "2.0.0.0"
+            ProductVersion = "2.0.0"
             LegalCopyright = "Copyright (c) 2026 Kamel"
           }
           foreach ($entry in $expected.GetEnumerator()) {
@@ -60,47 +61,19 @@ jobs:
             }
           }
 
-      - name: Upload unsigned executable
-        id: upload-unsigned
-        uses: actions/upload-artifact@v7
+      - name: Upload executable artifact
+        uses: actions/upload-artifact@v4
         with:
-          path: dist/Liste Tiime.exe
-          archive: false
-
-      - name: Submit SignPath signing request
-        if: startsWith(github.ref, 'refs/tags/v') && env.SIGNPATH_API_TOKEN != ''
-        uses: signpath/github-action-submit-signing-request@v2
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
-          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
-          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
-          github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
-          wait-for-completion: true
-          output-artifact-directory: ${{ github.workspace }}\signed
-          skip-decompress: true
+          name: Liste Tiime win-x64
+          path: publish/Liste Tiime.exe
 
       - name: Prepare release assets
         if: startsWith(github.ref, 'refs/tags/v')
-        id: prepare-release
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path "release" -Force | Out-Null
-          $signedPath = "signed\Liste Tiime.exe"
           $releasePath = "release\Liste Tiime.exe"
-          if (Test-Path -LiteralPath $signedPath) {
-            $signature = Get-AuthenticodeSignature -LiteralPath $signedPath
-            if ($signature.Status -ne "Valid") {
-              throw "La signature SignPath n'est pas valide : $($signature.Status)"
-            }
-            Copy-Item -LiteralPath $signedPath -Destination $releasePath
-            $signatureText = "Signé par SignPath Foundation"
-          }
-          else {
-            Copy-Item -LiteralPath "dist\Liste Tiime.exe" -Destination $releasePath
-            $signatureText = "NON SIGNÉ - candidature SignPath Foundation en attente"
-          }
+          Copy-Item -LiteralPath "publish\Liste Tiime.exe" -Destination $releasePath
 
           $hash = (Get-FileHash -LiteralPath $releasePath -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash *Liste Tiime.exe" | Set-Content -LiteralPath "release\SHA256SUMS.txt" -Encoding ascii
@@ -108,8 +81,9 @@ jobs:
           @"
           ## Liste Tiime $env:GITHUB_REF_NAME
 
-          Statut de signature : **$signatureText**
+          Statut de signature : **NON SIGNÉ**
 
+          - Réécriture complète en C# WinForms / .NET 10
           - Détection automatique fournisseur/client
           - Exports Excel et PDF
           - Glisser-déposer direct sur l'exécutable
@@ -120,7 +94,7 @@ jobs:
 
       - name: Create or update GitHub release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v3.0.1
+        uses: softprops/action-gh-release@v2
         with:
           name: Liste Tiime ${{ github.ref_name }}
           body_path: release/RELEASE_NOTES.md

@@ -2,6 +2,11 @@
 build/
 dist/
 __pycache__/
+.vs/
+bin/
+obj/
+publish/
+TestResults/
 
 Factures manquantes/
 

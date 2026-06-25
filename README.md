@@ -2,10 +2,10 @@
 
 ![Logo Liste Tiime](logo_compta_premium.png)
 
-Liste Tiime transforme localement un export CSV de grand livre en listes
-Excel et PDF prêtes à être envoyées au client.
-
-![Interface Liste Tiime](docs/liste-tiime-interface.png)
+Liste Tiime transforme localement un export CSV de grand livre en fichiers
+Excel et PDF prêts à envoyer au client. L'application est réécrite en C#
+WinForms/.NET 10 pour démarrer plus vite et ne dépend plus de Python,
+PyInstaller ou Microsoft Excel.
 
 ## Fonctionnalités
 
@@ -17,6 +17,7 @@ Excel et PDF prêtes à être envoyées au client.
 - Export Excel, PDF ou les deux.
 - Glisser-déposer dans l'application ou directement sur l'exécutable.
 - Masquage automatique des colonnes de remboursements ou d'avoirs vides.
+- Génération PDF directe en A4 portrait, avec en-tête répété et pagination.
 
 ## Confidentialité
 
@@ -29,9 +30,9 @@ données de test synthétiques et ne contiennent aucune donnée client.
 Téléchargez `Liste Tiime.exe` depuis la page
 [Releases](https://github.com/kamel934/RelanceTiime/releases).
 
-La release indique explicitement si le fichier est signé ou non. Une fois le
-projet approuvé par SignPath Foundation, Windows doit afficher
-`SignPath Foundation` comme éditeur.
+Le binaire publié est autonome pour Windows 10/11 64 bits. Il n'est pas signé
+avec un certificat public, donc Windows peut encore afficher un avertissement
+SmartScreen sur un nouveau poste.
 
 Vous pouvez vérifier l'intégrité du téléchargement avec le fichier
 `SHA256SUMS.txt` publié dans la même release :
@@ -48,7 +49,8 @@ Get-FileHash ".\Liste Tiime.exe" -Algorithm SHA256
 4. Déposez le CSV dans la zone voulue.
 
 Un CSV glissé directement sur l'icône génère la première liste correspondant
-au type de grand livre détecté.
+au type de grand livre détecté. Le succès est silencieux dans ce mode ; les
+erreurs restent affichées clairement.
 
 ## Format CSV attendu
 
@@ -66,23 +68,15 @@ minimum :
 
 ## Développement
 
-Prérequis : Windows et Python 3.12.
+Prérequis : Windows et .NET SDK 10.
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
-.\.venv\Scripts\python.exe -m pytest -q
-.\.venv\Scripts\pyinstaller.exe --clean --noconfirm "Liste Tiime.spec"
+dotnet restore ListeTiime.slnx
+dotnet test ListeTiime.slnx -c Release
+dotnet publish src\ListeTiime.App\ListeTiime.App.csproj -c Release -r win-x64 -o publish
 ```
 
-Le binaire est créé dans `dist\Liste Tiime.exe`.
-
-## Signature
-
-Le processus prévu pour les releases signées est décrit dans
-[SIGNING_POLICY.md](SIGNING_POLICY.md). La signature gratuite dépend de
-l'approbation du projet par SignPath Foundation. La fiche de candidature est
-préparée dans [docs/SIGNPATH_APPLICATION.md](docs/SIGNPATH_APPLICATION.md).
+Le binaire autonome est créé dans `publish\Liste Tiime.exe`.
 
 ## Licence
 

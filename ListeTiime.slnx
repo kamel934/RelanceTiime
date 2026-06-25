@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ListeTiime.App/ListeTiime.App.csproj" />
+    <Project Path="src/ListeTiime.Core/ListeTiime.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ListeTiime.Tests/ListeTiime.Tests.csproj" />
+  </Folder>
+</Solution>
